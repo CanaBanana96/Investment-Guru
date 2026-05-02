@@ -42,7 +42,7 @@ export function summarizePortfolio(holdings) {
   const singleStockPercent = allocation.find((item) => item.bucket === "Single stocks")?.percent || 0;
   const healthScore =
     total > 0
-      ? Math.max(52, Math.round(92 - weightedRisk * 4 - Math.max(0, singleStockPercent - 10) * 1.4))
+      ? Math.max(0, Math.min(100, Math.round(92 - weightedRisk * 4 - Math.max(0, singleStockPercent - 10) * 1.4)))
       : 0;
 
   return {

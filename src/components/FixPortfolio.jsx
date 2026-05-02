@@ -206,23 +206,25 @@ export function simulateRebalancedPortfolio(portfolio) {
 
   const holdings = Array.isArray(portfolio) ? portfolio : [];
   const newPortfolio = holdings.map((asset) => ({ ...asset })); // Deep copy
-  const totalValue = holdings.reduce((sum, asset) => sum + getHoldingValue(asset), 0);
+
+  let totalSold = 0;
 
   // Apply sells
   plan.actions.filter((action) => action.type === 'Sell').forEach((action) => {
     const pct = parseInt(action.amount) / 100;
     const asset = newPortfolio.find((a) => a.symbol === action.symbol);
     if (asset) {
-      asset.value = getHoldingValue(asset) - getHoldingValue(asset) * pct;
+      const soldAmount = getHoldingValue(asset) * pct;
+      totalSold += soldAmount;
+      asset.value = getHoldingValue(asset) - soldAmount;
     }
   });
 
   // Apply buys
   const buyAction = plan.actions.find((action) => action.type === 'Buy');
   if (buyAction) {
-    const pct = parseInt(buyAction.amount) / 100;
     const asset = newPortfolio.find((a) => a.symbol === buyAction.symbol);
-    const amount = totalValue * pct * 0.98; // Simulate 2% fee
+    const amount = totalSold * 0.98; // Simulate 2% fee
     if (asset) {
       asset.value = getHoldingValue(asset) + amount;
     } else if (amount > 0) {
@@ -350,10 +352,12 @@ function BeforeAfterModal({ isOpen, onClose, beforePortfolio, afterPortfolio, se
   );
 }
 
-function FixPortfolio({ portfolio = mockPortfolio, selectedGoal = 'grow-wealth', selectedRisk = 'medium' }) {
+function FixPortfolio({ portfolio = mockPortfolio, updatePortfolio, selectedGoal = 'grow-wealth', selectedRisk = 'medium' }) {
   const [analysis, setAnalysis] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [beforePortfolio, setBeforePortfolio] = useState(null);
+  const [afterPortfolio, setAfterPortfolio] = useState(null);
 
   const currentRisk = useMemo(() => calculateRisk(portfolio), [portfolio]);
 
@@ -362,13 +366,15 @@ function FixPortfolio({ portfolio = mockPortfolio, selectedGoal = 'grow-wealth',
     setAnalysis(null);
     window.setTimeout(() => {
       const plan = generateRebalancePlan(portfolio);
+      const simulatedPortfolio = simulateRebalancedPortfolio(portfolio);
       setAnalysis(plan);
+      setBeforePortfolio(portfolio);
+      setAfterPortfolio(simulatedPortfolio);
       setIsProcessing(false);
-      setIsModalOpen(true); // Open modal after analysis
+      if (updatePortfolio) updatePortfolio(simulatedPortfolio);
+      setIsModalOpen(true);
     }, 1200);
   };
-
-  const afterPortfolio = useMemo(() => simulateRebalancedPortfolio(portfolio), [portfolio]);
 
   return (
     <div className="rounded-3xl border border-teal-900/10 bg-white p-6 shadow-sm shadow-teal-950/5 transition duration-300 hover:shadow-md">
@@ -485,7 +491,7 @@ function FixPortfolio({ portfolio = mockPortfolio, selectedGoal = 'grow-wealth',
       <BeforeAfterModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
-        beforePortfolio={portfolio}
+        beforePortfolio={beforePortfolio}
         afterPortfolio={afterPortfolio}
         selectedGoal={selectedGoal}
         selectedRisk={selectedRisk}

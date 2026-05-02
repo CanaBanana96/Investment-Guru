@@ -48,15 +48,6 @@ const scenarioByGoal = {
   'regular-income': 'Inflation stays high',
 };
 
-const healthTargets = {
-  'buy-home': 75,
-  education: 78,
-  'retire-early': 82,
-  'grow-wealth': 80,
-  'protect-savings': 70,
-  'regular-income': 73,
-};
-
 const recommendationByGoal = {
   'buy-home': {
     title: '🏠 Save for your down payment',
@@ -92,20 +83,101 @@ const recommendationByGoal = {
 
 const riskEffects = {
   low: {
-    text: 'Prioritize bonds (50-60%)',
-    targetAdjustment: 5,
     greeting: 'Low risk means sleeping well at night. Bonds are your friend.',
   },
   medium: {
-    text: 'Balanced approach (60% stocks / 40% bonds)',
-    targetAdjustment: 0,
     greeting: 'Medium risk. Growth with a safety net. This works for most.',
   },
   high: {
-    text: 'Aggressive growth (80-90% stocks)',
-    targetAdjustment: -3,
     greeting: "High risk, high reward. You'll see bigger swings. Don't panic.",
   },
+};
+
+const goalRiskProfiles = {
+  'buy-home': {
+    baseHealthTarget: 86,
+    riskBehavior: {
+      low: 'Protect the down payment with mostly cash and short-term bonds',
+      medium: 'Keep the home money steady, with only modest stock exposure',
+      high: 'Add limited growth, but keep the money needed soon protected',
+    },
+    actions: {
+      low: ['Move 40% to cash/money market', 'Use short-term bond funds for steadier value'],
+      medium: ['Move 30% to cash/money market', 'Keep remaining in conservative bonds'],
+      high: ['Keep at least 25% in cash for the home', 'Limit single stocks so one company cannot hurt the goal'],
+    },
+  },
+  education: {
+    baseHealthTarget: 84,
+    riskBehavior: {
+      low: 'Favor bonds and cash if tuition is coming soon',
+      medium: 'Use a balanced education mix that gets safer over time',
+      high: 'Use more stock funds now, then dial risk down before tuition',
+    },
+    actions: {
+      low: ['Move near-term tuition money to bonds/cash', 'Keep growth funds for later years'],
+      medium: ['Use a 529-style balanced index mix', 'Reduce stock risk as school gets closer'],
+      high: ['Use broad stock index funds for long-term education growth', 'Set a yearly glide path into safer funds'],
+    },
+  },
+  'retire-early': {
+    baseHealthTarget: 80,
+    riskBehavior: {
+      low: 'Keep retirement steady with more bonds and less single-stock risk',
+      medium: 'Use broad stock funds for growth with a bond cushion',
+      high: 'Use aggressive broad stock exposure, not concentrated bets',
+    },
+    actions: {
+      low: ['Keep 40% in bonds for early-retirement stability', 'Trim single stocks above 8%'],
+      medium: ['Hold mostly broad stock index funds', 'Keep bonds as the retirement cushion'],
+      high: ['Increase broad stock index exposure toward 75%', 'Keep single stocks diversified and capped'],
+    },
+  },
+  'grow-wealth': {
+    baseHealthTarget: 80,
+    riskBehavior: {
+      low: 'Grow carefully with a larger bond cushion',
+      medium: 'Balanced growth with broad stock funds and bonds',
+      high: 'Aggressive growth through broad funds, with single stocks capped',
+    },
+    actions: {
+      low: ['Keep broad stocks, but raise bonds for smoother returns', 'Avoid adding more single stocks'],
+      medium: ['Add broad U.S. and international index exposure', 'Rebalance quarterly to keep risk controlled'],
+      high: ['Add 10% to broad growth and international funds', 'Cap single stocks near 14%'],
+    },
+  },
+  'protect-savings': {
+    baseHealthTarget: 90,
+    riskBehavior: {
+      low: 'Protect principal with bonds and cash first',
+      medium: 'Keep a defensive mix with modest stock exposure',
+      high: 'Allow some growth, but protection still leads the plan',
+    },
+    actions: {
+      low: ['Move to 50% bonds and 30% cash', 'Avoid single stocks entirely'],
+      medium: ['Keep most money in bonds and cash', 'Use only broad stock funds for growth'],
+      high: ['Keep at least 60% in bonds/cash', 'Use broad funds instead of single-stock bets'],
+    },
+  },
+  'regular-income': {
+    baseHealthTarget: 82,
+    riskBehavior: {
+      low: 'Prioritize predictable income from bonds and cash-like funds',
+      medium: 'Blend bond income with dividend index funds',
+      high: 'Seek more income growth with dividend funds, not 90% growth stocks',
+    },
+    actions: {
+      low: ['Add high-quality bond funds for monthly income', 'Keep enough cash for near-term withdrawals'],
+      medium: ['Add dividend index ETFs such as SCHD or VYM', 'Add a bond ladder for predictable payments'],
+      high: ['Tilt toward dividend-growth ETFs', 'Keep bonds so income is not all stock-market dependent'],
+    },
+  },
+};
+
+const riskHealthOffsets = {
+  low: 4,
+  medium: 0,
+  high: -4,
 };
 
 const guruGreetingByGoal = {
@@ -117,10 +189,35 @@ const guruGreetingByGoal = {
   'regular-income': 'Beta, want monthly cash? Let me show you dividend stocks and bond ladders.',
 };
 
+function buildGoalRiskPlan(goal, risk) {
+  const safeGoal = goalRiskProfiles[goal] ? goal : 'grow-wealth';
+  const safeRisk = riskHealthOffsets[risk] == null ? 'medium' : risk;
+  const profile = goalRiskProfiles[safeGoal];
+  const fallbackActions = recommendationByGoal[safeGoal]?.actions || recommendationByGoal['grow-wealth'].actions;
+  const actions = profile.actions[safeRisk] || fallbackActions;
+  const healthTarget = Math.max(65, Math.min(92, profile.baseHealthTarget + riskHealthOffsets[safeRisk]));
+
+  return {
+    scenario: scenarioByGoal[safeGoal] || scenarioByGoal['grow-wealth'],
+    healthTarget,
+    riskBehavior: profile.riskBehavior[safeRisk] || profile.riskBehavior.medium,
+    actions,
+    greeting: riskEffects[safeRisk]?.greeting || riskEffects.medium.greeting,
+  };
+}
+
 export default function Dashboard({ initialGoal = 'growth', initialRisk = 'medium' }) {
   const { user, isGuest, exitGuest } = useAuth();
   const navigate = useNavigate();
-  const { portfolio, loading: portfolioLoading, error: portfolioError, lastUpdated } = useLiveSamplePortfolio();
+  const { portfolio: livePortfolio, loading: portfolioLoading, error: portfolioError, lastUpdated } = useLiveSamplePortfolio();
+  const [portfolio, setPortfolio] = useState([]);
+  const [hasCustomPortfolio, setHasCustomPortfolio] = useState(false);
+
+  useEffect(() => {
+    if (!hasCustomPortfolio && livePortfolio.length > 0) {
+      setPortfolio(livePortfolio);
+    }
+  }, [livePortfolio, hasCustomPortfolio]);
   const marketData = useMarketData();
   const [goal, setGoal] = useState(() => normalizeGoal(initialGoal));
   const [comfort, setComfort] = useState(initialRisk);
@@ -153,9 +250,9 @@ export default function Dashboard({ initialGoal = 'growth', initialRisk = 'mediu
   );
   const { summary, target } = recommendation;
   const selectedGoalContent = recommendationByGoal[goal] || recommendationByGoal['grow-wealth'];
-  const selectedRiskEffect = riskEffects[comfort] || riskEffects.medium;
-  const selectedScenario = scenarioByGoal[goal] || scenarioByGoal['grow-wealth'];
-  const healthTarget = (healthTargets[goal] || healthTargets['grow-wealth']) + selectedRiskEffect.targetAdjustment;
+  const selectedPlan = useMemo(() => buildGoalRiskPlan(goal, comfort), [goal, comfort]);
+  const selectedScenario = selectedPlan.scenario;
+  const healthTarget = selectedPlan.healthTarget;
   const transparency = useMemo(() => buildTransparencyModel(summary, target), [summary, target]);
   const portfolioReturn = useMemo(() => calculateSeedReturn(portfolio), [portfolio]);
   const stockHoldings = useMemo(
@@ -188,10 +285,10 @@ export default function Dashboard({ initialGoal = 'growth', initialRisk = 'mediu
     setChatMessages([
       {
         role: 'assistant',
-        content: `${guruGreetingByGoal[goal] || guruGreetingByGoal['grow-wealth']} ${selectedRiskEffect.greeting}\nButtons: [Show me] [Explain simply]`,
+        content: `${guruGreetingByGoal[goal] || guruGreetingByGoal['grow-wealth']} ${selectedPlan.greeting}\nButtons: [Show me] [Explain simply]`,
       },
     ]);
-  }, [goal, selectedRiskEffect.greeting]);
+  }, [goal, selectedPlan.greeting]);
 
   useEffect(() => {
     setRecommendationPulse(true);
@@ -249,7 +346,7 @@ export default function Dashboard({ initialGoal = 'growth', initialRisk = 'mediu
             comfort,
             cashNeed,
             selectedGoalContent,
-            selectedRiskEffect,
+            selectedPlan,
             selectedScenario,
             healthTarget,
             scenario: recommendation.scenario,
@@ -356,9 +453,7 @@ export default function Dashboard({ initialGoal = 'growth', initialRisk = 'mediu
           <GoalRiskSelector
             selectedGoal={goal}
             selectedRisk={comfort}
-            selectedScenario={selectedScenario}
-            selectedGoalContent={selectedGoalContent}
-            selectedRiskEffect={selectedRiskEffect}
+            selectedPlan={selectedPlan}
             healthTarget={healthTarget}
             onGoalChange={handleGoalChange}
             onRiskChange={handleRiskChange}
@@ -521,7 +616,15 @@ export default function Dashboard({ initialGoal = 'growth', initialRisk = 'mediu
               </form>
             </section>
 
-            <FixPortfolio portfolio={portfolio} selectedGoal={goal} selectedRisk={comfort} />
+            <FixPortfolio
+              portfolio={portfolio}
+              updatePortfolio={(nextPortfolio) => {
+                setPortfolio(nextPortfolio);
+                setHasCustomPortfolio(true);
+              }}
+              selectedGoal={goal}
+              selectedRisk={comfort}
+            />
 
             <ThisVsThat
               selectedGoal={goal}
@@ -541,11 +644,11 @@ export default function Dashboard({ initialGoal = 'growth', initialRisk = 'mediu
               <p className="mt-2 text-sm leading-6 text-slate-600">
                 {selectedGoalContent.why}
               </p>
-              <p className="mt-2 text-sm font-medium text-teal-700">{selectedRiskEffect.text}</p>
+              <p className="mt-2 text-sm font-medium text-teal-700">{selectedPlan.riskBehavior}</p>
               <div id="recommendation-primary-action" className="mt-5 rounded-lg border border-teal-900/10 bg-[#fbfaf7] p-4 transition duration-500">
                 <p className="text-xs font-semibold uppercase tracking-wide text-teal-700">Action 1</p>
                 <RecommendationAction
-                  action={selectedGoalContent.actions[0]}
+                  action={selectedPlan.actions[0]}
                   explanation={transparency.singleStockExplanation}
                   isOpen={openWhy === 'action-1'}
                   onToggle={() => setOpenWhy(openWhy === 'action-1' ? null : 'action-1')}
@@ -553,7 +656,7 @@ export default function Dashboard({ initialGoal = 'growth', initialRisk = 'mediu
                 />
                 <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-teal-700">Action 2</p>
                 <RecommendationAction
-                  action={selectedGoalContent.actions[1]}
+                  action={selectedPlan.actions[1]}
                   explanation={transparency.bondExplanation}
                   isOpen={openWhy === 'action-2'}
                   onToggle={() => setOpenWhy(openWhy === 'action-2' ? null : 'action-2')}
@@ -615,7 +718,7 @@ function Metric({ label, value, detail }) {
   );
 }
 
-function GoalRiskSelector({ selectedGoal, selectedRisk, selectedScenario, selectedGoalContent, selectedRiskEffect, healthTarget, onGoalChange, onRiskChange, onReset }) {
+function GoalRiskSelector({ selectedGoal, selectedRisk, selectedPlan, healthTarget, onGoalChange, onRiskChange, onReset }) {
   return (
     <section className="rounded-lg border border-teal-900/10 bg-[#fbfaf7] p-4">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -657,7 +760,7 @@ function GoalRiskSelector({ selectedGoal, selectedRisk, selectedScenario, select
         </div>
       </div>
 
-      <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+      <div className="mt-4 flex flex-wrap gap-2">
         <div className="flex flex-wrap gap-2">
           {riskOptions.map(option => {
             const selected = selectedRisk === option.id;
@@ -677,21 +780,6 @@ function GoalRiskSelector({ selectedGoal, selectedRisk, selectedScenario, select
             );
           })}
         </div>
-
-        <div className="flex flex-wrap gap-2">
-          {scenarioOptions.map(scenario => (
-            <span
-              key={scenario}
-              className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                selectedScenario === scenario
-                  ? 'bg-teal-900 text-white'
-                  : 'bg-white text-slate-500'
-              }`}
-            >
-              {scenario}
-            </span>
-          ))}
-        </div>
       </div>
 
       <div className="mt-4 grid gap-3 rounded-lg border border-teal-900/10 bg-white p-3 md:grid-cols-3">
@@ -701,11 +789,11 @@ function GoalRiskSelector({ selectedGoal, selectedRisk, selectedScenario, select
         </div>
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">2. Risk behavior</p>
-          <p className="mt-1 text-sm font-semibold text-slate-900">{selectedRiskEffect.text}</p>
+          <p className="mt-1 text-sm font-semibold text-slate-900">{selectedPlan.riskBehavior}</p>
         </div>
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">3. Next portfolio move</p>
-          <p className="mt-1 text-sm font-semibold text-slate-900">{selectedGoalContent.actions[0]}</p>
+          <p className="mt-1 text-sm font-semibold text-slate-900">{selectedPlan.actions[0]}</p>
         </div>
       </div>
     </section>
